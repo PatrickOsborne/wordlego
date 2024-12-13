@@ -1,0 +1,24 @@
+# For the full description for the configuration, see https://github.com/uber-go/zap/blob/382e2511e51cda8afde24f9e6e741f934308edfa/config.go#L58-L94
+level: 'info'
+development: false
+disableCaller: false
+disableStacktrace: false
+disableFunction: true
+encoding: 'json'
+encoderConfig:
+  timeKey: 'dateTime'
+  levelKey: 'level'
+  nameKey: 'logger'
+  callerKey: 'caller'
+  messageKey: 'msg'
+  stacktraceKey: 'stacktrace'
+  functionKey: 'function'
+  timeEncoder: 'iso8601'
+  lineEnding: ''
+  levelEncoder: ''
+  durationEncoder: ''
+  callerEncoder: ''
+outputPaths:
+  - 'stdout'
+errorOutputPaths:
+  - 'stderr'
