@@ -14,13 +14,14 @@ import (
 )
 
 type CurateResult struct {
-	word    string
-	exclude bool
-	done    bool
+	word     string
+	exclude  bool
+	response string
+	done     bool
 }
 
-func NewCurateResult(w string, exclude bool) CurateResult {
-	return CurateResult{word: w, exclude: exclude}
+func NewCurateResult(w string, exclude bool, response string) CurateResult {
+	return CurateResult{word: w, exclude: exclude, response: response}
 }
 
 func NewTerminalCurateResult() CurateResult {
@@ -31,15 +32,16 @@ func Curate(ctx context.Context, client *ollama.Client, path string) error {
 	logger := getLogger()
 	processMax := -1
 	maxConcurrency := 10
+	verbose := false
 
 	logger.Infof("starting curation, process max (%d), concurrency max (%d)", processMax, maxConcurrency)
 
 	curateResultChannel := make(chan CurateResult, 100)
 	wordChannel := make(chan string, 100)
-	worker := NewWordWorker(maxConcurrency, wordChannel, curateResultChannel, client)
+	worker := NewWordWorker(maxConcurrency, wordChannel, curateResultChannel, client, verbose)
 
 	resultsDone := make(chan interface{})
-	go handleResults(ctx, "data/curated.txt", "data/excluded.txt", curateResultChannel, resultsDone)
+	go handleResults(ctx, "data/curated.txt", "data/curated.response.txt", "data/excluded.txt", "data/excluded.response.txt", curateResultChannel, resultsDone)
 
 	go worker.processWordChannel(ctx)
 
@@ -58,7 +60,6 @@ loop:
 		w = strings.TrimSpace(w)
 		count += 1
 		if processMax < 0 || count <= processMax {
-			logger.Debugf("read word (%s)", w)
 			wordChannel <- w
 		}
 
@@ -92,9 +93,9 @@ loop:
 	return nil
 }
 
-func handleResults(ctx context.Context, path string, excludedPath string, c <-chan CurateResult, done chan<- interface{}) {
+func handleResults(ctx context.Context, path string, responsePath string, excludedPath string, excludedResponsePath string, c <-chan CurateResult, done chan<- interface{}) {
 	logger := getLogger()
-	logger.Infof("starting to handle results")
+	logger.Infof("starting to curated results handler")
 
 	curated, err := os.Create(path)
 	if err != nil {
@@ -103,6 +104,13 @@ func handleResults(ctx context.Context, path string, excludedPath string, c <-ch
 	}
 	defer doClose(curated)
 
+	curatedResponse, err := os.Create(responsePath)
+	if err != nil {
+		logger.Errorf("failed to create curated file at path (%s)", responsePath)
+		return
+	}
+	defer doClose(curatedResponse)
+
 	excluded, err := os.Create(excludedPath)
 	if err != nil {
 		logger.Errorf("failed to create excluded file at path (%s)", excludedPath)
@@ -110,10 +118,17 @@ func handleResults(ctx context.Context, path string, excludedPath string, c <-ch
 	}
 	defer doClose(excluded)
 
+	excludedResponse, err := os.Create(excludedResponsePath)
+	if err != nil {
+		logger.Errorf("failed to create excluded file at path (%s)", excludedResponsePath)
+		return
+	}
+	defer doClose(excludedResponse)
+
 	excludedCount := atomic.Int32{}
 	curatedCount := atomic.Int32{}
 	report := func() {
-		logger.Infof("results processing completed, curated count (%d), excluded count (%d)", curatedCount.Load(), excludedCount.Load())
+		logger.Infof("results handler processing completed, curated count (%d), excluded count (%d)", curatedCount.Load(), excludedCount.Load())
 	}
 	defer report()
 
@@ -142,11 +157,23 @@ func handleResults(ctx context.Context, path string, excludedPath string, c <-ch
 					logger.Errorf("failed to write to excluded file, exiting")
 					return
 				}
+
+				_, err = excludedResponse.WriteString(fmt.Sprintf("%s: %s\n", result.word, result.response))
+				if err != nil {
+					logger.Errorf("failed to write to excluded response file, exiting")
+					return
+				}
 			} else {
 				curatedCount.Add(1)
 				_, err = curated.WriteString(result.word + "\n")
 				if err != nil {
 					logger.Errorf("failed to write to curated file, exiting")
+					return
+				}
+
+				_, err = curatedResponse.WriteString(fmt.Sprintf("%s: %s\n", result.word, result.response))
+				if err != nil {
+					logger.Errorf("failed to write to curated response file, exiting")
 					return
 				}
 			}

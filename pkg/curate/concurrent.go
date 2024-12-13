@@ -13,6 +13,7 @@ type WordWorker struct {
 	resultChannel   chan<- CurateResult
 	client          *ollama.Client
 	reportFrequency int32
+	verbose         bool
 
 	concurrentChannel chan interface{}
 	readComplete      atomic.Bool
@@ -22,11 +23,14 @@ type WordWorker struct {
 	processCount atomic.Int32
 }
 
-func NewWordWorker(maxConcurrency int, wordChannel <-chan string, resultChannel chan<- CurateResult, client *ollama.Client) *WordWorker {
+func NewWordWorker(maxConcurrency int, wordChannel <-chan string, resultChannel chan<- CurateResult, client *ollama.Client, verbose bool) *WordWorker {
 	return &WordWorker{
-		maxConcurrency: maxConcurrency,
-		wordChannel:    wordChannel, resultChannel: resultChannel, client: client,
-		reportFrequency:   200,
+		maxConcurrency:    maxConcurrency,
+		wordChannel:       wordChannel,
+		resultChannel:     resultChannel,
+		client:            client,
+		reportFrequency:   100,
+		verbose:           verbose,
 		concurrentChannel: setupConcurrentChannel(maxConcurrency),
 	}
 }
@@ -51,7 +55,7 @@ func (w *WordWorker) incrementProcessCount() {
 	v := w.processCount.Add(1)
 	if v%w.reportFrequency == 0 {
 		elapsed := time.Since(w.startTime)
-		getLogger().Infof("words processed (%d), elapsed (%s), average (%f)", v, elapsed, elapsed.Milliseconds()/int64(v))
+		getLogger().Infof("words processed (%d), elapsed (%s), average milliseconds (%f)", v, elapsed, float64(elapsed.Milliseconds())/float64(v))
 	}
 }
 
@@ -81,7 +85,7 @@ func (w *WordWorker) processWordChannel(ctx context.Context) bool {
 				// handle cleanup
 				return true
 			} else {
-				logger.Debugf("word from channel (%s)", word)
+				//logger.Debugf("word from channel (%s)", word)
 				w.incrementInProcess()
 				w.processWord(ctx, word)
 			}
@@ -114,11 +118,13 @@ func (w *WordWorker) curateWord(ctx context.Context, token interface{}, word str
 	defer writeTokenToChannel()
 
 	start := time.Now()
-	rareOrObscure := IsWordRareOrObscure(ctx, w.client, word)
+	rareOrObscure, response := IsWordRareOrObscure(ctx, w.client, word, w.verbose)
 	elapsed := time.Since(start)
-	logger.Debugf("word (%s), is rare or obscure (%t), elapsed (%s)", word, rareOrObscure, elapsed)
+	if false {
+		logger.Debugf("word (%s), is rare or obscure (%t), elapsed (%s)", word, rareOrObscure, elapsed)
+	}
 
-	result := NewCurateResult(word, rareOrObscure)
+	result := NewCurateResult(word, rareOrObscure, response)
 	w.resultChannel <- result
 
 	w.incrementProcessCount()

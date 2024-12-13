@@ -12,7 +12,7 @@ encoderConfig:
   callerKey: 'caller'
   messageKey: 'msg'
   stacktraceKey: 'stacktrace'
-  functionKey: 'function'
+  functionKey: ''
   timeEncoder: 'iso8601'
   lineEnding: ''
   levelEncoder: ''
